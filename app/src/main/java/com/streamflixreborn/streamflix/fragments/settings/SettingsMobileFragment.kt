@@ -60,7 +60,7 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
         val title: String?,
     )
 
-    private val DEFAULT_DOMAIN_VALUE = "streamingunity.biz"
+    private val DEFAULT_DOMAIN_VALUE = "streamingunity.dog"
     private val DEFAULT_CUEVANA_DOMAIN_VALUE = "cuevana3.la"
     private val DEFAULT_POSEIDON_DOMAIN_VALUE = "www.poseidonhd2.co"
     private val PREFS_ERROR_VALUE = "PREFS_NOT_INIT_ERROR"
@@ -238,7 +238,7 @@ class SettingsMobileFragment : PreferenceFragmentCompat() {
             }
             setOnPreferenceChangeListener { preference, newValue ->
                 val typed = (newValue as String).trim()
-                val BLOCKED = listOf("streamingcommunityz.green", "streamingunity.club")
+                val BLOCKED = listOf("streamingcommunityz.green", "streamingunity.club", "streamingunity.bike", "streamingcommunityz.buzz")
                 val effectiveDomain = if (BLOCKED.any { typed.contains(it) }) DEFAULT_DOMAIN_VALUE else typed
                 UserPreferences.streamingcommunityDomain = effectiveDomain
                 preference.summary = effectiveDomain

@@ -58,6 +58,7 @@ import com.streamflixreborn.streamflix.models.Season
 import com.streamflixreborn.streamflix.models.TvShow
 import com.streamflixreborn.streamflix.models.Video
 import com.streamflixreborn.streamflix.models.WatchItem
+import com.streamflixreborn.streamflix.providers.SerienStreamProvider
 import com.streamflixreborn.streamflix.ui.PlayerMobileView
 import com.streamflixreborn.streamflix.utils.MediaServer
 import com.streamflixreborn.streamflix.utils.UserPreferences
@@ -78,13 +79,14 @@ import androidx.core.net.toUri
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.streamflixreborn.streamflix.fragments.player.settings.PlayerSettingsView
-import com.streamflixreborn.streamflix.providers.SerienStreamProvider
 import java.util.Base64 
 import java.io.File
 import java.io.FileOutputStream
 import android.webkit.CookieManager
 import androidx.core.content.FileProvider
 import androidx.navigation.NavOptions
+import com.bumptech.glide.Glide
+import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions
 import com.streamflixreborn.streamflix.utils.DnsResolver
 import com.streamflixreborn.streamflix.utils.NetworkClient
 import com.streamflixreborn.streamflix.utils.EpisodeManager
@@ -92,13 +94,19 @@ import com.streamflixreborn.streamflix.utils.PlayerGestureHelper
 import com.streamflixreborn.streamflix.utils.UserDataCache.toEpisode
 import com.streamflixreborn.streamflix.utils.UserDataCache.toMovie
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.internal.userAgent
 import java.util.Locale
+import com.streamflixreborn.streamflix.extractors.TokenManager
 
 class PlayerMobileFragment : Fragment() {
+    companion object {
+        private const val NEXT_EPISODE_PREFETCH_THRESHOLD_MS = 60_000L
+        private const val NEXT_EPISODE_OVERLAY_MIN_THRESHOLD_MS = 30_000L
+    }
 
     private var _binding: FragmentPlayerMobileBinding? = null
     private val binding get() = _binding!!
@@ -127,6 +135,9 @@ class PlayerMobileFragment : Fragment() {
     private var isIgnoringPip = false
     private var waitingForBypass = false
     private var bypassDone = false
+    private var nextEpisodePrefetchTargetId: String? = null
+    private var nextEpisodePrefetchJob: Job? = null
+    private var nextEpisodeOverlayDismissed = false
 
     private val bypassWebViewLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -282,7 +293,6 @@ class PlayerMobileFragment : Fragment() {
 
                         if (sToServer != null && !waitingForBypass && !bypassDone) {
                             val bypassUrl = buildSerienStreamBypassUrl()
-                            val bypassToken = extractSerienStreamBypassToken(sToServer.id)
                             if (bypassUrl.isNullOrBlank()) {
                                 waitingForBypass = false
                                 Toast.makeText(requireContext(), "Unable to open s.to bypass page.", Toast.LENGTH_SHORT).show()
@@ -293,7 +303,6 @@ class PlayerMobileFragment : Fragment() {
                             bypassWebViewLauncher.launch(
                                 Intent(requireContext(), BypassWebViewActivity::class.java)
                                     .putExtra(BypassWebViewActivity.EXTRA_URL, bypassUrl)
-                                    .putExtra(BypassWebViewActivity.EXTRA_S_TO_TOKEN, bypassToken)
                             )
                         } else {
                             val providerName = UserPreferences.currentProvider?.name ?: ""
@@ -495,6 +504,7 @@ class PlayerMobileFragment : Fragment() {
                             subtitle = "S${nextEpisode.season.number} E${nextEpisode.number}  •  ${nextEpisode.title}"
                         )
 
+                    hideNextEpisodeOverlay()
                     findNavController().navigate(
                         action,
                         NavOptions.Builder()
@@ -531,6 +541,7 @@ class PlayerMobileFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        nextEpisodePrefetchJob?.cancel()
         val window = requireActivity().window
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
@@ -574,20 +585,31 @@ class PlayerMobileFragment : Fragment() {
         requireActivity().requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         when (val type = args.videoType) {
             is Video.Type.Episode -> {
+                nextEpisodeOverlayDismissed = false
+                nextEpisodePrefetchTargetId = null
                 if (EpisodeManager.listIsEmpty(type)) {
+                    EpisodeManager.clearEpisodes()
                     lifecycleScope.launch(Dispatchers.IO) {
                         EpisodeManager.addEpisodesFromDb(type, database)
                         withContext(Dispatchers.Main) {
                             EpisodeManager.setCurrentEpisode(type)
+                            updatePlayerHeader(type)
                             setupEpisodeNavigationButtons()
+                            refreshEpisodeNavigation(type)
                         }
                     }
                 } else {
                     EpisodeManager.setCurrentEpisode(type)
                     setupEpisodeNavigationButtons()
+                    refreshEpisodeNavigation(type)
                 }
             }
-            is Video.Type.Movie -> {EpisodeManager.clearEpisodes()}
+            is Video.Type.Movie -> {
+                nextEpisodeOverlayDismissed = false
+                nextEpisodePrefetchTargetId = null
+                EpisodeManager.clearEpisodes()
+                hideNextEpisodeOverlay()
+            }
         }
 
 
@@ -708,6 +730,15 @@ class PlayerMobileFragment : Fragment() {
             it.isGone = true
         }
 
+        binding.btnNextEpisodeAction.setOnClickListener {
+            hideNextEpisodeOverlay()
+            playNextEpisodeAcrossSeasons()
+        }
+        binding.btnNextEpisodeDismiss.setOnClickListener {
+            nextEpisodeOverlayDismissed = true
+            hideNextEpisodeOverlay()
+        }
+
         binding.settings.onManualZoomClicked = {
             binding.settings.hide()
             binding.pvPlayer.hideController()
@@ -813,7 +844,33 @@ class PlayerMobileFragment : Fragment() {
             EpisodeManager::hasPreviousEpisode,
             viewModel::playPreviousEpisode
         )
-        handleNavigationButton(btnNext, EpisodeManager::hasNextEpisode, viewModel::playNextEpisode)
+        handleNavigationButton(btnNext, EpisodeManager::hasNextEpisode, ::playNextEpisodeAcrossSeasons)
+    }
+
+    private fun refreshEpisodeNavigation(type: Video.Type.Episode) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            EpisodeManager.ensureNextEpisodeAvailable(type, database)
+            withContext(Dispatchers.Main) {
+                setupEpisodeNavigationButtons()
+            }
+        }
+    }
+
+    private fun playNextEpisodeAcrossSeasons(autoplay: Boolean = false) {
+        val type = args.videoType as? Video.Type.Episode ?: return
+
+        lifecycleScope.launch {
+            val hasNextEpisode = withContext(Dispatchers.IO) {
+                EpisodeManager.ensureNextEpisodeAvailable(type, database)
+            }
+
+            setupEpisodeNavigationButtons()
+
+            if (!hasNextEpisode) return@launch
+            if (autoplay && !UserPreferences.autoplay) return@launch
+
+            viewModel.playNextEpisode()
+        }
     }
 
     private fun decodeBase64Uri(uri: String): String? {
@@ -1052,7 +1109,7 @@ class PlayerMobileFragment : Fragment() {
                             }
                     if (player.hasReallyFinished()) {
                         if (UserPreferences.autoplay) {
-                            viewModel.autoplayNextEpisode()
+                            playNextEpisodeAcrossSeasons(autoplay = true)
                         }
                     }
                 }
@@ -1061,6 +1118,12 @@ class PlayerMobileFragment : Fragment() {
             override fun onPlayerError(error: PlaybackException) {
                 super.onPlayerError(error)
                 Log.e("PlayerMobileFragment", "onPlayerError: ", error)
+                
+                val nextServer = servers.getOrNull(servers.indexOf(currentServer) + 1)
+                if (nextServer != null) {
+                    Log.i("PlayerMobileFragment", "Playback failed, trying next server: ${nextServer.name}")
+                    viewModel.getVideo(nextServer)
+                }
             }
         })
 
@@ -1124,7 +1187,9 @@ class PlayerMobileFragment : Fragment() {
     }
 
     private fun currentVideoTypeForUi(): Video.Type = when (val type = args.videoType) {
-        is Video.Type.Episode -> EpisodeManager.getCurrentEpisode() ?: type
+        is Video.Type.Episode -> EpisodeManager.getCurrentEpisode()
+            ?.takeIf { currentEpisode -> currentEpisode.id == type.id }
+            ?: type
         is Video.Type.Movie -> type
     }
 
@@ -1196,6 +1261,7 @@ class PlayerMobileFragment : Fragment() {
             if (player.isPlaying) {
                 val show = player.currentPosition in 3000..120000
                 showSkipIntroButton(show)
+                updateNextEpisodeOverlay()
             }
             progressHandler.postDelayed(progressRunnable, 1000)
         }
@@ -1205,6 +1271,100 @@ class PlayerMobileFragment : Fragment() {
     private fun stopProgressHandler() {
         if (::progressHandler.isInitialized) {
             progressHandler.removeCallbacks(progressRunnable)
+        }
+    }
+
+    private fun updateNextEpisodeOverlay() {
+        val currentEpisode = currentVideoTypeForUi() as? Video.Type.Episode ?: run {
+            hideNextEpisodeOverlay()
+            return
+        }
+        val duration = player.duration.takeIf { it > 0 } ?: run {
+            hideNextEpisodeOverlay()
+            return
+        }
+        val remainingMs = (duration - player.currentPosition).coerceAtLeast(0L)
+
+        if (nextEpisodeOverlayDismissed) {
+            hideNextEpisodeOverlay()
+            return
+        }
+
+        if (remainingMs <= NEXT_EPISODE_PREFETCH_THRESHOLD_MS) {
+            ensureNextEpisodePrepared(currentEpisode)
+        }
+
+        val nextEpisode = EpisodeManager.peekNextEpisode()
+        val overlayThresholdMs = maxOf(
+            NEXT_EPISODE_OVERLAY_MIN_THRESHOLD_MS,
+            UserPreferences.autoplayBuffer * 1000L
+        )
+        if (nextEpisode == null || remainingMs == 0L || remainingMs > overlayThresholdMs) {
+            hideNextEpisodeOverlay()
+            return
+        }
+
+        showNextEpisodeOverlay(nextEpisode, remainingMs)
+    }
+
+    private fun ensureNextEpisodePrepared(currentEpisode: Video.Type.Episode) {
+        if (EpisodeManager.peekNextEpisode() != null) return
+        if (nextEpisodePrefetchTargetId == currentEpisode.id && nextEpisodePrefetchJob?.isActive == true) {
+            return
+        }
+
+        nextEpisodePrefetchTargetId = currentEpisode.id
+        nextEpisodePrefetchJob?.cancel()
+        nextEpisodePrefetchJob = lifecycleScope.launch(Dispatchers.IO) {
+            val loaded = EpisodeManager.ensureNextEpisodeAvailable(currentEpisode, database)
+            withContext(Dispatchers.Main) {
+                if (!isAdded || _binding == null) return@withContext
+                setupEpisodeNavigationButtons()
+                if (loaded && player.isPlaying) {
+                    updateNextEpisodeOverlay()
+                }
+            }
+        }
+    }
+
+    private fun showNextEpisodeOverlay(nextEpisode: Video.Type.Episode, remainingMs: Long) {
+        binding.tvNextEpisodeMeta.text = getString(
+            R.string.tv_show_item_season_number_episode_number,
+            nextEpisode.season.number,
+            nextEpisode.number
+        )
+        binding.tvNextEpisodeTitle.text = nextEpisode.title
+            ?: getString(R.string.episode_number, nextEpisode.number)
+        binding.tvNextEpisodeCountdown.text = if (UserPreferences.autoplay) {
+            getString(
+                R.string.player_next_episode_autoplay_in,
+                ((remainingMs + 999L) / 1000L).toInt()
+            )
+        } else {
+            getString(R.string.player_next_episode_ready)
+        }
+
+        Glide.with(this)
+            .load(nextEpisode.poster ?: nextEpisode.tvShow.poster)
+            .error(R.drawable.glide_fallback_cover)
+            .fallback(R.drawable.glide_fallback_cover)
+            .centerCrop()
+            .transition(DrawableTransitionOptions.withCrossFade())
+            .into(binding.ivNextEpisodePoster)
+
+        if (binding.layoutNextEpisodeOverlay.isGone) {
+            val fadeIn = android.view.animation.AnimationUtils.loadAnimation(requireContext(), R.anim.fade_in)
+            binding.layoutNextEpisodeOverlay.startAnimation(fadeIn)
+            binding.layoutNextEpisodeOverlay.isVisible = true
+        }
+    }
+
+    private fun hideNextEpisodeOverlay() {
+        if (_binding == null) return
+        if (binding.layoutNextEpisodeOverlay.isVisible) {
+            val fadeOut = android.view.animation.AnimationUtils.loadAnimation(requireContext(), R.anim.fade_out)
+            binding.layoutNextEpisodeOverlay.startAnimation(fadeOut)
+            binding.layoutNextEpisodeOverlay.isGone = true
         }
     }
 
@@ -1226,6 +1386,7 @@ class PlayerMobileFragment : Fragment() {
     override fun onPause() {
         super.onPause()
         stopProgressHandler()
+        hideNextEpisodeOverlay()
     }
 
     private var currentExtraBuffering = false
@@ -1266,7 +1427,29 @@ class PlayerMobileFragment : Fragment() {
         currentExtraBuffering = extraBuffering
         currentSoftwareDecoder = softwareDecoder
 
-        val okHttpClient = NetworkClient.default
+        var tokenLogged = false
+        val okHttpClient = NetworkClient.default.newBuilder()
+            .addInterceptor { chain ->
+                var request = chain.request()
+                
+                if (currentVideo?.maintainToken == true) {
+                    val latestQuery = TokenManager.latestQuery
+                    if (latestQuery != null) {
+                        val origHttpUrl = request.url
+                        val updatedHttpUrl = origHttpUrl.newBuilder().query(latestQuery).build()
+                        request = request.newBuilder().url(updatedHttpUrl).build()
+                        if (!tokenLogged) {
+                            android.util.Log.d("TokenManager", "[MOBILE-INTERCEPTOR] Token successfully injected (applied to all segments)")
+                            tokenLogged = true
+                        }
+                    } else {
+                        android.util.Log.w("TokenManager", "[MOBILE-INTERCEPTOR] maintainToken=true but latestQuery is null! URL: ${request.url.host}")
+                    }
+                }
+                
+                chain.proceed(request)
+            }
+            .build()
         httpDataSource = OkHttpDataSource.Factory(okHttpClient)
 
         dataSourceFactory = DefaultDataSource.Factory(requireContext(), httpDataSource)
@@ -1328,12 +1511,6 @@ class PlayerMobileFragment : Fragment() {
         }
 
         return "${SerienStreamProvider.baseUrl}serie/$episodeId"
-    }
-
-    private fun extractSerienStreamBypassToken(url: String): String {
-        return runCatching {
-            Uri.parse(url).getQueryParameter("t").orEmpty()
-        }.getOrDefault("")
     }
 
     private fun applyBypassCookies(url: String, cookieHeader: String) {

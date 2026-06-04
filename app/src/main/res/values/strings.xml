@@ -47,6 +47,7 @@
 
     <string name="search_input_hint">Search movies, TV shows</string>
     <string name="global_search">Global search</string>
+    <string name="search_empty_query">Please enter a search query</string>
     <string name="searching">Searching...</string>
     <string name="search_error">Error</string>
     <string name="result">Result</string>
@@ -113,6 +114,11 @@
     <string name="player_not_available_it_message">Not available on Italian servers, search for it on TMDB in other languages</string>
     <string name="player_not_available_lang_message">Not available in %s, search for it on TMDB in other languages</string>
     <string name="player_retry_later_message">Video currently unavailable on this provider. Please try again later</string>
+    <string name="player_next_episode_up_next">Up next</string>
+    <string name="player_next_episode_action">Play now</string>
+    <string name="player_next_episode_dismiss">Dismiss</string>
+    <string name="player_next_episode_ready">Next episode ready</string>
+    <string name="player_next_episode_autoplay_in">Playing next in %ds</string>
     <string name="player_aspect_ratio_fit">Fit to screen</string>
     <string name="player_aspect_ratio_fill">Stretch</string>
     <string name="player_aspect_ratio_zoom">Zoom</string>
@@ -416,6 +422,7 @@
     <string name="settings_app_language_spanish">Spanish</string>
     <string name="settings_app_language_french">French</string>
     <string name="settings_app_language_italian">Italian</string>
+    <string name="settings_app_language_polish">Polish</string>
     <string name="player_settings_gestures_title">Gestures</string>
     <string name="player_settings_keep_screen_on_title">Keep screen on when paused</string>
 

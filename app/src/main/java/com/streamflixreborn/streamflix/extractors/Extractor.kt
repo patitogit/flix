@@ -24,7 +24,9 @@ abstract class Extractor {
             RabbitstreamExtractor.MegacloudExtractor(),
             RabbitstreamExtractor.DokicloudExtractor(),
             RabbitstreamExtractor.PremiumEmbedingExtractor(),
+            UpzoneExtractor(),
             StreamhubExtractor(),
+            VtubeExtractor(),
             VoeExtractor(),
             StreamtapeExtractor(),
             VidozaExtractor(),
@@ -36,7 +38,6 @@ abstract class Extractor {
             MyFileStorageExtractor(),
             MoflixExtractor(),
             MStreamDayExtractor(),
-            MStreamClickExtractor(),
             VidsrcNetExtractor(),
             StreamWishExtractor(),
             StreamWishExtractor.UqloadsXyz(),
@@ -105,7 +106,11 @@ abstract class Extractor {
             StreamrubyExtractor(),
             VidaraExtractor(),
             VidsonicExtractor(),
-            HxfileExtractor()
+            HxfileExtractor(),
+            ZillaExtractor(),
+            PDrainExtractor(),
+            MaxstreamExtractor(),
+            VidxGoExtractor()
         )
 
         suspend fun extract(link: String, server: Video.Server? = null): Video {

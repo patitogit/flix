@@ -59,7 +59,6 @@ class MainMobileActivity : FragmentActivity() {
 
     private data class ResolverPayload(
         val url: String,
-        val sToToken: String = "",
     )
 
     private var _binding: ActivityMainMobileBinding? = null
@@ -289,7 +288,7 @@ class MainMobileActivity : FragmentActivity() {
         binding.bnvMain.menu.findItem(R.id.movies)?.isVisible = supportsMovies
         binding.bnvMain.menu.findItem(R.id.tv_shows)?.apply {
             isVisible = supportsTvShows
-            title = if (provider.name == "CableVisionHD" || provider.name == "TvporinternetHD") {
+            title = if (provider.name == "CableVisionHD" || provider.name == "TvporinternetHD"|| provider.name == "IPTV Spain"|| provider.name == "IPTV-All World"|| provider.name == "Tv Libre Futbol") {
                 getString(R.string.main_menu_all_channels)
             } else {
                 getString(R.string.main_menu_tv_shows)
@@ -366,7 +365,6 @@ class MainMobileActivity : FragmentActivity() {
                                             val json = JSONObject(payload)
                                             ResolverPayload(
                                                 url = json.optString("url"),
-                                                sToToken = json.optString("sToToken"),
                                             )
                                         }.getOrNull()
 
@@ -509,7 +507,6 @@ class MainMobileActivity : FragmentActivity() {
             bypassWebViewLauncher.launch(
                 Intent(this@MainMobileActivity, BypassWebViewActivity::class.java)
                     .putExtra(BypassWebViewActivity.EXTRA_URL, payload.url)
-                    .putExtra(BypassWebViewActivity.EXTRA_S_TO_TOKEN, payload.sToToken)
             )
         }
     }

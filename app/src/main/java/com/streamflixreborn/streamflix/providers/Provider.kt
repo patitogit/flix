@@ -78,6 +78,7 @@ interface Provider {
             LaCartoonsProvider to ProviderSupport(movies = false, tvShows = true),
             AnimefenixProvider to ProviderSupport(movies = false, tvShows = true),
             AnimeFlvProvider to ProviderSupport(movies = false, tvShows = true),
+            AnimeAv1Provider to ProviderSupport(movies = false, tvShows = true),
             SoloLatinoProvider to ProviderSupport(movies = true, tvShows = true),
             Cine24hProvider to ProviderSupport(movies = true, tvShows = true),
             PelisplustoProvider to ProviderSupport(movies = true, tvShows = true),
@@ -93,12 +94,17 @@ interface Provider {
             EinschaltenProvider to ProviderSupport(movies = true, tvShows = false),
             HDFilmeProvider to ProviderSupport(movies = true, tvShows = true),
             MEGAKinoProvider to ProviderSupport(movies = true, tvShows = true),
+            FilmyOnlineCcProvider to ProviderSupport(movies = true, tvShows = true),
+            ZeriunProvider to ProviderSupport(movies = true, tvShows = true),
             UnJourUnFilmProvider to ProviderSupport(movies = true, tvShows = true),
             TvporinternetHDProvider to ProviderSupport(movies = false, tvShows = true),
             FrembedProvider to ProviderSupport(movies = true, tvShows = true),
             AfterDarkProvider to ProviderSupport(movies = true, tvShows = true),
             KidrazProvider to ProviderSupport(movies = true, tvShows = false),
-            FrenchMangaProvider to ProviderSupport(movies = false, tvShows = true)
+            FrenchMangaProvider to ProviderSupport(movies = false, tvShows = true),
+            IptvOrgProvider to ProviderSupport(movies = false, tvShows = true),
+            IptvSpainProvider to ProviderSupport(movies = false, tvShows = true),
+            TvLibrefutbolProvider to ProviderSupport(movies = false, tvShows = true)
         )
 
         // Helper functions to check support
